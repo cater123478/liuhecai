@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>六合彩真正追号版</title>
+<style>
+body{font-family:Arial;max-width:650px;margin:auto;padding:15px;}
+h2{text-align:center;}
+.card{border:1px solid #ddd;padding:10px;margin-top:10px;border-radius:8px;}
+.fixed{border-color:blue;}
+.best{border-color:green;}
+.balance{border-color:orange;}
+button{margin:5px;padding:8px;}
+</style>
+</head>
+<body>
+
+<h2>六合彩真正追号版</h2>
+
+<button onclick="generate()">🎯 生成推荐</button>
+<button onclick="changeFixed()">🔄 换固定组</button>
+
+<div id="info"></div>
+<div id="out"></div>
+
+<script>
+// ===== 参数 =====
+let history = [
+  [3,8,15,22,31,45,7],
+  [1,5,9,18,28,40,12],
+  [2,10,19,25,33,44,6]
+];
+
+let lockDays = 7; // 固定组锁定天数
+let today = new Date().toISOString().split("T")[0];
+let fixedData = JSON.parse(localStorage.getItem("fixedData") || "{}");
+
+// ===== 工具函数 =====
+function getWeights(){
+  let f=Array(50).fill(0);
+  history.forEach(p=>p.forEach(n=>f[n]++));
+  let m=Math.max(...f);
+  return f.map(x=>0.5 + (x/m) + (x===0?0.3:0));
+}
+
+function valid(n){
+  let s=n.filter(x=>x<=24).length;
+  let o=n.filter(x=>x%2).length;
+  return s>=2 && s<=4 && o>=2 && o<=4;
+}
+
+function pick(w,used){
+  let pool=[];
+  for(let i=1;i<=49;i++){
+    if(!used.includes(i)){
+      let k=Math.floor(w[i]*10);
+      for(let j=0;j<k;j++) pool.push(i);
+    }
+  }
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+
+function genOne(w,c){
+  for(let t=0;t<100;t++){
+    let n=[];
+    while(n.length<c){
+      let x=pick(w,n);
+      if(!n.includes(x)) n.push(x);
+    }
+    if(valid(n)) return n.sort((a,b)=>a-b);
+  }
+  return [];
+}
+
+function score(nums){
+  let s=0;
+  let odd=nums.filter(n=>n%2).length;
+  let small=nums.filter(n=>n<=24).length;
+  if(odd>=2&&odd<=4) s+=25;
+  if(small>=2&&small<=4) s+=25;
+  if(new Set(nums).size===nums.length) s+=25;
+  if(Math.max(...nums)-Math.min(...nums)>20) s+=25;
+  return s;
+}
+
+// ===== 固定组管理 =====
+function initFixed(){
+  if(fixedData.date && fixedData.expire && new Date(today) <= new Date(fixedData.expire)){
+    return fixedData;
+  } else {
+    let w = getWeights();
+    let t = genOne(w,6);
+    let z = genOne(w,4);
+    let expire = new Date();
+    expire.setDate(expire.getDate()+lockDays);
+    fixedData = {date:today, t, z, expire:expire.toISOString().split("T")[0]};
+    localStorage.setItem("fixedData", JSON.stringify(fixedData));
+    return fixedData;
+  }
+}
+
+function changeFixed(){
+  let w = getWeights();
+  let t = genOne(w,6);
+  let z = genOne(w,4);
+  let expire = new Date();
+  expire.setDate(expire.getDate()+lockDays);
+  fixedData = {date:today, t, z, expire:expire.toISOString().split("T")[0]};
+  localStorage.setItem("fixedData", JSON.stringify(fixedData));
+  generate();
+}
+
+// ===== 主生成 =====
+function generate(){
+  let w=getWeights();
+  let outHTML="";
+
+  // 固定组
+  let fixed = initFixed();
+  outHTML+=`<div class="card fixed">
+  🔵 固定追号组（锁定到 ${fixed.expire}）<br>
+  特码：${fixed.t.join(",")}<br>
+  正码：${fixed.z.join(",")}
+  </div>`;
+
+  // 随机组生成
+  let arr=[];
+  for(let i=0;i<5;i++){
+    let t=genOne(w,6);
+    let z=genOne(w,4);
+    let sc=score(t.concat(z));
+    arr.push({t,z,sc});
+  }
+  arr.sort((a,b)=>b.sc-a.sc);
+  let best = arr[0];
+  let balance = arr[Math.floor(arr.length/2)];
+
+  outHTML+=`<div class="card best">
+  🟢 推荐组（最高评分: ${best.sc}）<br>
+  特码：${best.t.join(",")}<br>
+  正码：${best.z.join(",")}
+  </div>`;
+  outHTML+=`<div class="card balance">
+  🟡 推荐组（均衡选择）<br>
+  特码：${balance.t.join(",")}<br>
+  正码：${balance.z.join(",")}
+  </div>`;
+
+  outHTML+=`<p>💰 建议投入：150元（固定组+随机2组）</p>`;
+  document.getElementById("out").innerHTML=outHTML;
+
+  document.getElementById("info").innerHTML=`📅 今日日期: ${today}`;
+}
+
+</script>
+
+</body>
+</html>
