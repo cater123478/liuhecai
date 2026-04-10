@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>六合彩真正追号版</title>
+<title>六合彩真正追号版（默认显示+独立刷新）</title>
 <style>
 body{font-family:Arial;max-width:650px;margin:auto;padding:15px;}
 h2{text-align:center;}
@@ -16,12 +16,13 @@ button{margin:5px;padding:8px;}
 </head>
 <body>
 
-<h2>六合彩真正追号版</h2>
+<h2>六合彩真正追号版（默认显示+独立刷新）</h2>
 
-<button onclick="generate()">🎯 生成推荐</button>
+<button onclick="generateRecommendations()">🎯 刷新随机推荐组</button>
 <button onclick="changeFixed()">🔄 换固定组</button>
 
 <div id="info"></div>
+<div id="fixedOut"></div>
 <div id="out"></div>
 
 <script>
@@ -32,9 +33,10 @@ let history = [
   [2,10,19,25,33,44,6]
 ];
 
-let lockDays = 7; // 固定组锁定天数
+let lockDays = 7;
 let today = new Date().toISOString().split("T")[0];
 let fixedData = JSON.parse(localStorage.getItem("fixedData") || "{}");
+let recCache = JSON.parse(localStorage.getItem("recCache") || "{}");
 
 // ===== 工具函数 =====
 function getWeights(){
@@ -87,6 +89,7 @@ function score(nums){
 // ===== 固定组管理 =====
 function initFixed(){
   if(fixedData.date && fixedData.expire && new Date(today) <= new Date(fixedData.expire)){
+    renderFixed();
     return fixedData;
   } else {
     let w = getWeights();
@@ -96,35 +99,38 @@ function initFixed(){
     expire.setDate(expire.getDate()+lockDays);
     fixedData = {date:today, t, z, expire:expire.toISOString().split("T")[0]};
     localStorage.setItem("fixedData", JSON.stringify(fixedData));
+    renderFixed();
     return fixedData;
   }
 }
 
-function changeFixed(){
-  let w = getWeights();
-  let t = genOne(w,6);
-  let z = genOne(w,4);
-  let expire = new Date();
-  expire.setDate(expire.getDate()+lockDays);
-  fixedData = {date:today, t, z, expire:expire.toISOString().split("T")[0]};
-  localStorage.setItem("fixedData", JSON.stringify(fixedData));
-  generate();
+function renderFixed(){
+  document.getElementById("fixedOut").innerHTML=
+    `<div class="card fixed">
+      🔵 固定追号组（锁定到 ${fixedData.expire}）<br>
+      特码：${fixedData.t.join(",")}<br>
+      正码：${fixedData.z.join(",")}
+    </div>`;
 }
 
-// ===== 主生成 =====
-function generate(){
+// ===== 换固定组 =====
+function changeFixed(){
+  if(confirm("⚠️ 确认要换固定组吗？固定组将刷新并重新锁定7天")) {
+    let w = getWeights();
+    let t = genOne(w,6);
+    let z = genOne(w,4);
+    let expire = new Date();
+    expire.setDate(expire.getDate()+lockDays);
+    fixedData = {date:today, t, z, expire:expire.toISOString().split("T")[0]};
+    localStorage.setItem("fixedData", JSON.stringify(fixedData));
+    renderFixed();
+    // alert("✅ 固定组已更新并锁定7天");
+  }
+}
+
+// ===== 随机推荐组 =====
+function generateRecommendations(){
   let w=getWeights();
-  let outHTML="";
-
-  // 固定组
-  let fixed = initFixed();
-  outHTML+=`<div class="card fixed">
-  🔵 固定追号组（锁定到 ${fixed.expire}）<br>
-  特码：${fixed.t.join(",")}<br>
-  正码：${fixed.z.join(",")}
-  </div>`;
-
-  // 随机组生成
   let arr=[];
   for(let i=0;i<5;i++){
     let t=genOne(w,6);
@@ -136,22 +142,29 @@ function generate(){
   let best = arr[0];
   let balance = arr[Math.floor(arr.length/2)];
 
-  outHTML+=`<div class="card best">
+  recCache = {best, balance, date: today};
+  localStorage.setItem("recCache", JSON.stringify(recCache));
+
+  let html="";
+  html+=`<div class="card best">
   🟢 推荐组（最高评分: ${best.sc}）<br>
   特码：${best.t.join(",")}<br>
   正码：${best.z.join(",")}
   </div>`;
-  outHTML+=`<div class="card balance">
+  html+=`<div class="card balance">
   🟡 推荐组（均衡选择）<br>
   特码：${balance.t.join(",")}<br>
   正码：${balance.z.join(",")}
   </div>`;
+  html+=`<p>💰 建议投入：固定组+随机2组 = 150元</p>`;
 
-  outHTML+=`<p>💰 建议投入：150元（固定组+随机2组）</p>`;
-  document.getElementById("out").innerHTML=outHTML;
-
+  document.getElementById("out").innerHTML = html;
   document.getElementById("info").innerHTML=`📅 今日日期: ${today}`;
 }
+
+// ===== 页面加载 =====
+initFixed();
+generateRecommendations();
 
 </script>
 
