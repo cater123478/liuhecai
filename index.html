@@ -3,166 +3,279 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>六合彩真正追号版（默认显示+独立刷新）</title>
+<title>玩彩终极版</title>
+
 <style>
-body{font-family:Arial;max-width:650px;margin:auto;padding:15px;}
+body{font-family:Arial;max-width:650px;margin:auto;padding:15px;background:#f5f6fa;}
 h2{text-align:center;}
-.card{border:1px solid #ddd;padding:10px;margin-top:10px;border-radius:8px;}
-.fixed{border-color:blue;}
-.best{border-color:green;}
-.balance{border-color:orange;}
-button{margin:5px;padding:8px;}
+
+.card{
+  background:#fff;
+  border-radius:12px;
+  padding:12px;
+  margin-top:12px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.1);
+}
+
+.fixed{border-left:5px solid #4a90e2;}
+.best{border-left:5px solid #28a745;}
+.balance{border-left:5px solid #ff9800;}
+
+.btn{
+  display:block;width:100%;padding:14px;margin-top:10px;
+  border:none;border-radius:12px;font-size:16px;color:#fff;
+}
+
+.btn-rec{background:linear-gradient(45deg,#4caf50,#2ecc71);}
+.btn-fixed{background:linear-gradient(45deg,#2196f3,#42a5f5);}
+.btn-data{background:linear-gradient(45deg,#ff9800,#ffb74d);}
 </style>
 </head>
+
 <body>
 
-<h2>六合彩真正追号版（默认显示+独立刷新）</h2>
+<h2>玩彩终极版</h2>
 
-<button onclick="generateRecommendations()">🎯 刷新随机推荐组</button>
-<button onclick="changeFixed()">🔄 换固定组</button>
+<button class="btn btn-rec" onclick="generateRecommendations()">🎯 刷新推荐</button>
+<button class="btn btn-fixed" onclick="changeFixed()">🔄 换固定组</button>
+<button class="btn btn-data" onclick="loadHistory()">📥 获取开奖数据</button>
 
-<div id="info"></div>
 <div id="fixedOut"></div>
 <div id="out"></div>
+<div id="history"></div>
 
 <script>
-// ===== 参数 =====
-let history = [
-  [3,8,15,22,31,45,7],
-  [1,5,9,18,28,40,12],
-  [2,10,19,25,33,44,6]
-];
 
-let lockDays = 7;
-let today = new Date().toISOString().split("T")[0];
+// ===== 基础 =====
+const lockDays = 7;
+const today = new Date().toISOString().split("T")[0];
+
 let fixedData = JSON.parse(localStorage.getItem("fixedData") || "{}");
-let recCache = JSON.parse(localStorage.getItem("recCache") || "{}");
 
-// ===== 工具函数 =====
-function getWeights(){
-  let f=Array(50).fill(0);
-  history.forEach(p=>p.forEach(n=>f[n]++));
-  let m=Math.max(...f);
-  return f.map(x=>0.5 + (x/m) + (x===0?0.3:0));
+// ===== 数据 =====
+async function fetchRaw(){
+    let res = await fetch("https://ls.kjkj.fit/kj");
+    return await res.json();
 }
 
-function valid(n){
-  let s=n.filter(x=>x<=24).length;
-  let o=n.filter(x=>x%2).length;
-  return s>=2 && s<=4 && o>=2 && o<=4;
+async function fetchData(){
+    let json = await fetchRaw();
+    return json.data.slice(0,100).map(i=>i.num.split(',').map(Number));
 }
 
+// ===== 权重 =====
+function calcWeights(history){
+    let freq=Array(50).fill(0), miss=Array(50).fill(0);
+
+    history.forEach((p,idx)=>{
+        p.forEach(n=>{
+            freq[n]++;
+            miss[n]=idx;
+        });
+    });
+
+    let maxF=Math.max(...freq);
+
+    return freq.map((f,i)=>{
+        let hot=f/maxF;
+        let cold=miss[i]/history.length;
+        return 0.6 + hot*0.6 + cold*0.6 + Math.random()*0.3;
+    });
+}
+
+// ===== 工具 =====
 function pick(w,used){
-  let pool=[];
-  for(let i=1;i<=49;i++){
-    if(!used.includes(i)){
-      let k=Math.floor(w[i]*10);
-      for(let j=0;j<k;j++) pool.push(i);
+    let pool=[];
+    for(let i=1;i<=49;i++){
+        if(!used.includes(i)){
+            let k=Math.floor(w[i]*10);
+            for(let j=0;j<k;j++) pool.push(i);
+        }
     }
-  }
-  return pool[Math.floor(Math.random()*pool.length)];
+    return pool[Math.floor(Math.random()*pool.length)];
 }
 
 function genOne(w,c){
-  for(let t=0;t<100;t++){
     let n=[];
     while(n.length<c){
-      let x=pick(w,n);
-      if(!n.includes(x)) n.push(x);
+        let x=pick(w,n);
+        if(!n.includes(x)) n.push(x);
     }
-    if(valid(n)) return n.sort((a,b)=>a-b);
-  }
-  return [];
+    return n.sort((a,b)=>a-b);
 }
 
-function score(nums){
-  let s=0;
-  let odd=nums.filter(n=>n%2).length;
-  let small=nums.filter(n=>n<=24).length;
-  if(odd>=2&&odd<=4) s+=25;
-  if(small>=2&&small<=4) s+=25;
-  if(new Set(nums).size===nums.length) s+=25;
-  if(Math.max(...nums)-Math.min(...nums)>20) s+=25;
-  return s;
-}
+// ===== 固定组 =====
+async function initFixed(force=false){
+    let history=await fetchData();
+    let w=calcWeights(history);
 
-// ===== 固定组管理 =====
-function initFixed(){
-  if(fixedData.date && fixedData.expire && new Date(today) <= new Date(fixedData.expire)){
-    renderFixed();
-    return fixedData;
-  } else {
-    let w = getWeights();
-    let t = genOne(w,6);
-    let z = genOne(w,4);
+    if(!force && fixedData.t){
+        renderFixed();
+        return;
+    }
+
+    let t,z;
+
+    if(fixedData.t){
+        let keep = selectKeep(fixedData.t, history);
+        while(keep.length<6){
+            let x=pick(w,keep);
+            if(!keep.includes(x)) keep.push(x);
+        }
+        t=keep.sort((a,b)=>a-b);
+    }else{
+        t=genOne(w,6);
+    }
+
+    z=genOne(w,4);
+
     let expire = new Date();
-    expire.setDate(expire.getDate()+lockDays);
-    fixedData = {date:today, t, z, expire:expire.toISOString().split("T")[0]};
+    expire.setDate(expire.getDate() + lockDays);
+
+    fixedData = {
+        t,
+        z,
+        start: today,
+        expire: expire.toISOString().split("T")[0]
+    };
+
     localStorage.setItem("fixedData", JSON.stringify(fixedData));
+
     renderFixed();
-    return fixedData;
-  }
+}
+
+function selectKeep(oldNums, history){
+    let freq={};
+
+    oldNums.forEach(n=>{
+        freq[n]=0;
+        history.forEach(p=>{
+            if(p.includes(n)) freq[n]++;
+        });
+    });
+
+    return oldNums
+        .sort((a,b)=>freq[b]-freq[a])
+        .slice(0,3); // 保留最活跃3个
 }
 
 function renderFixed(){
-  document.getElementById("fixedOut").innerHTML=
-    `<div class="card fixed">
-      🔵 固定追号组（锁定到 ${fixedData.expire}）<br>
-      特码：${fixedData.t.join(",")}<br>
-      正码：${fixedData.z.join(",")}
+    if(!fixedData || !fixedData.t){
+        document.getElementById("fixedOut").innerHTML="";
+        return;
+    }
+
+    let now = new Date();
+    let end = fixedData.expire ? new Date(fixedData.expire) : null;
+
+    let diff = end ? Math.ceil((end - now) / (1000*60*60*24)) : "-";
+    if(diff < 0) diff = 0;
+
+    document.getElementById("fixedOut").innerHTML = `
+    <div class="card fixed">
+    🔵 固定追号组（剩余 ${diff} 天）<br>
+    特码：${fixedData.t.join(",")}<br>
+    正码：${fixedData.z.join(",")}
     </div>`;
 }
 
-// ===== 换固定组 =====
-function changeFixed(){
-  if(confirm("⚠️ 确认要换固定组吗？固定组将刷新并重新锁定7天")) {
-    let w = getWeights();
-    let t = genOne(w,6);
-    let z = genOne(w,4);
-    let expire = new Date();
-    expire.setDate(expire.getDate()+lockDays);
-    fixedData = {date:today, t, z, expire:expire.toISOString().split("T")[0]};
-    localStorage.setItem("fixedData", JSON.stringify(fixedData));
-    renderFixed();
-    // alert("✅ 固定组已更新并锁定7天");
-  }
+async function changeFixed(){
+    if(confirm("确认更换固定组？将重新锁定7天")){
+        await initFixed(true);
+    }
 }
 
-// ===== 随机推荐组 =====
-function generateRecommendations(){
-  let w=getWeights();
-  let arr=[];
-  for(let i=0;i<5;i++){
-    let t=genOne(w,6);
-    let z=genOne(w,4);
-    let sc=score(t.concat(z));
-    arr.push({t,z,sc});
-  }
-  arr.sort((a,b)=>b.sc-a.sc);
-  let best = arr[0];
-  let balance = arr[Math.floor(arr.length/2)];
+// ===== 推荐组（专业版🔥）=====
+function scorePro(nums, history){
+    let s = 0;
 
-  recCache = {best, balance, date: today};
-  localStorage.setItem("recCache", JSON.stringify(recCache));
+    // 奇偶（偏离越多扣分）
+    let odd = nums.filter(n=>n%2).length;
+    s += 20 - Math.abs(5 - odd) * 3;
 
-  let html="";
-  html+=`<div class="card best">
-  🟢 推荐组（最高评分: ${best.sc}）<br>
-  特码：${best.t.join(",")}<br>
-  正码：${best.z.join(",")}
-  </div>`;
-  html+=`<div class="card balance">
-  🟡 推荐组（均衡选择）<br>
-  特码：${balance.t.join(",")}<br>
-  正码：${balance.z.join(",")}
-  </div>`;
-  html+=`<p>💰 建议投入：固定组+随机2组 = 150元</p>`;
+    // 大小
+    let small = nums.filter(n=>n<=24).length;
+    s += 20 - Math.abs(5 - small) * 3;
 
-  document.getElementById("out").innerHTML = html;
-  document.getElementById("info").innerHTML=`📅 今日日期: ${today}`;
+    // 跨度
+    let span = Math.max(...nums) - Math.min(...nums);
+    s += span;
+
+    // 分散度
+    let sorted = [...nums].sort((a,b)=>a-b);
+    let gaps=[];
+    for(let i=1;i<sorted.length;i++){
+        gaps.push(sorted[i]-sorted[i-1]);
+    }
+    let avgGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
+    s += avgGap * 5;
+
+    // 🔥 历史拟合（关键改）
+    let similarity=0;
+    history.forEach(p=>{
+        let hit = nums.filter(n=>p.includes(n)).length;
+        similarity += hit;
+    });
+
+    // 惩罚太像 or 太不像
+    let target = 50;
+    s += 30 - Math.abs(target - similarity) * 0.5;
+
+    return Math.round(s);
 }
 
-// ===== 页面加载 =====
+async function generateRecommendations(){
+    let history=await fetchData();
+    let w=calcWeights(history);
+
+    let pool=[];
+
+    for(let i=0;i<300;i++){
+        let t=genOne(w,6);
+        let z=genOne(w,4);
+
+        let nums=t.concat(z);
+        let sc=scorePro(nums, history);
+
+        pool.push({t,z,sc});
+    }
+
+    pool.sort((a,b)=>b.sc-a.sc);
+
+    let best=pool[0];
+    let second=pool[1];
+
+    document.getElementById("out").innerHTML=`
+    <div class="card best">
+    🟢 最优推荐（${best.sc}分）<br>
+    特码：${best.t.join(",")}<br>
+    正码：${best.z.join(",")}
+    </div>
+
+    <div class="card balance">
+    🟡 次优推荐（${second.sc}分）<br>
+    特码：${second.t.join(",")}<br>
+    正码：${second.z.join(",")}
+    </div>
+    `;
+}
+
+// ===== 开奖 =====
+async function loadHistory(){
+    let p = 50;
+    let json = await fetchRaw();
+    let list = json.data.slice(0,p);
+
+    let html=`<div class="card"><b>📊 最近开奖 ${p}期</b><br>`;
+    list.forEach(i=>{
+        html+=`${i.qishu}期 (${i.date})<br>${i.num}<br><br>`;
+    });
+    html+=`</div>`;
+
+    document.getElementById("history").innerHTML=html;
+}
+
+// ===== 初始化 =====
 initFixed();
 generateRecommendations();
 
